@@ -1,0 +1,5 @@
+{
+  "name": "HirePulse AI - Intelligent Screening",
+  "description": "A sophisticated AI-driven recruitment platform that uses Gemini to analyze resumes against job descriptions, score candidates, and generate tailored interview questions.",
+  "requestFramePermissions": []
+}
