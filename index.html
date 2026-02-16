@@ -8,9 +8,25 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; }
-        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; padding: 0; }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        
+        #error-display {
+            display: none;
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            padding: 16px;
+            border-radius: 8px;
+            color: #b91c1c;
+            z-index: 9999;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
     </style>
 <script type="importmap">
 {
@@ -24,23 +40,39 @@
 </script>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="error-display"></div>
+    <div id="root">
+        <div class="flex items-center justify-center h-screen bg-slate-50">
+            <div class="flex flex-col items-center gap-4">
+                <div class="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                <p class="text-slate-500 font-medium">Initializing HirePulse AI...</p>
+            </div>
+        </div>
+    </div>
 
     <script type="module">
         import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
         import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
         import { GoogleGenAI, Type } from 'https://esm.sh/@google/genai@1.41.0';
 
-        // The API Key is injected here by main.py
-        const API_KEY = process.env.API_KEY;
+        // Error reporter for the UI if something breaks
+        window.addEventListener('error', (event) => {
+            const display = document.getElementById('error-display');
+            display.style.display = 'block';
+            display.innerText = `JS Error: ${event.message}\nAt: ${event.filename}:${event.lineno}`;
+        });
+
+        // The API Key is injected here by main.py replacement
+        const API_KEY = __API_KEY_PLACEHOLDER__;
 
         /** AI SERVICE LOGIC **/
-        const ai = new GoogleGenAI({ apiKey: API_KEY });
+        const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
         const screenCandidate = async (jd, resume) => {
+            if (!ai) throw new Error("API Key is missing.");
             const response = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
-                contents: `Analyze Resume against Job Description.\nJD: ${jd}\nResume: ${resume}`,
+                contents: `Analyze the following Resume against the Job Description.\n\nJOB DESCRIPTION:\n${jd}\n\nRESUME CONTENT:\n${resume}`,
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -68,11 +100,21 @@
                 </div>
                 <nav className="flex-1 px-4 space-y-2 mt-4">
                     {['DASHBOARD', 'JOBS', 'CANDIDATES'].map(v => (
-                        <button key={v} onClick={() => setView(v)} className={`w-full text-left p-3 rounded-lg ${currentView === v ? 'bg-indigo-50 text-indigo-600 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}>
+                        <button 
+                            key={v} 
+                            onClick={() => setView(v)} 
+                            className={`w-full text-left p-3 rounded-lg transition-colors ${currentView === v ? 'bg-indigo-50 text-indigo-600 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
                             {v.charAt(0) + v.slice(1).toLowerCase()}
                         </button>
                     ))}
                 </nav>
+                <div className="p-4 border-t border-slate-100 flex flex-col items-center">
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-2 h-2 rounded-full ${API_KEY ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-xs text-slate-500">{API_KEY ? 'AI Ready' : 'Key Missing'}</span>
+                    </div>
+                </div>
             </aside>
         );
 
@@ -93,7 +135,7 @@
                     resume: formData.get('resume'),
                     status: 'pending'
                 };
-                setCandidates([...candidates, newCandidate]);
+                setCandidates([newCandidate, ...candidates]);
                 e.target.reset();
             };
 
@@ -103,96 +145,8 @@
                 setIsProcessing(true);
                 try {
                     const result = await screenCandidate(job.content, candidate.resume);
-                    setCandidates(candidates.map(c => c.id === candidate.id ? { ...c, score: result.matchPercentage, analysis: result, status: 'scored' } : c));
-                } catch (e) { alert("AI Error: Check API Key settings"); }
-                setIsProcessing(false);
-            };
-
-            const triggerMail = (candidate) => {
-                const subject = `Interview Invitation - ${jobs.find(j => j.id === selectedJobId)?.title}`;
-                const body = `Hi ${candidate.name},\n\nWe were impressed by your profile and would like to invite you for an interview.`;
-                window.location.href = `mailto:${candidate.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-            };
-
-            return (
-                <div className="flex bg-slate-50 min-h-screen">
-                    <Sidebar currentView={view} setView={setView} />
-                    <main className="flex-1 p-8 animate-fade-in">
-                        {view === 'DASHBOARD' && (
-                            <div className="space-y-6">
-                                <h1 className="text-3xl font-bold">Recruitment Hub</h1>
-                                <div className="grid grid-cols-3 gap-6">
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                                        <div className="text-slate-500 text-sm">Active Jobs</div>
-                                        <div className="text-3xl font-bold text-indigo-600">{jobs.length}</div>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                                        <div className="text-slate-500 text-sm">Total Candidates</div>
-                                        <div className="text-3xl font-bold text-emerald-600">{candidates.length}</div>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                                        <div className="text-slate-500 text-sm">Pending Review</div>
-                                        <div className="text-3xl font-bold text-amber-600">{candidates.filter(c => c.status === 'pending').length}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {view === 'CANDIDATES' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                                <form onSubmit={handleAddCandidate} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 h-fit">
-                                    <h3 className="font-bold mb-4">Add Applicant</h3>
-                                    <input name="name" placeholder="Name" className="w-full mb-3 p-2 border rounded" required />
-                                    <input name="email" placeholder="Email" className="w-full mb-3 p-2 border rounded" required />
-                                    <textarea name="resume" placeholder="Paste Resume Content" className="w-full mb-3 p-2 border rounded h-40" required />
-                                    <button className="w-full bg-indigo-600 text-white p-2 rounded font-bold">Add to Pipeline</button>
-                                </form>
-                                <div className="lg:col-span-2 bg-white rounded-2xl border overflow-hidden">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-slate-50">
-                                            <tr>
-                                                <th className="p-4">Name</th>
-                                                <th className="p-4">AI Match</th>
-                                                <th className="p-4">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {candidates.map(c => (
-                                                <tr key={c.id} className="border-t">
-                                                    <td className="p-4">{c.name}</td>
-                                                    <td className="p-4 font-bold text-indigo-600">{c.score ? `${c.score}%` : '—'}</td>
-                                                    <td className="p-4 flex gap-2">
-                                                        {c.status === 'pending' ? 
-                                                            <button onClick={() => runScreening(c)} className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded text-sm">Screen</button> :
-                                                            <button onClick={() => triggerMail(c)} className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded text-sm">Email Invite</button>
-                                                        }
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
-
-                        {view === 'JOBS' && (
-                            <div className="space-y-4">
-                                <h2 className="text-2xl font-bold">Job Roles</h2>
-                                {jobs.map(j => (
-                                    <div key={j.id} className="bg-white p-6 rounded-xl border">
-                                        <h4 className="font-bold text-lg">{j.title}</h4>
-                                        <p className="text-slate-500 text-sm">{j.content}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </main>
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(React.createElement(App));
-    </script>
-</body>
-</html>
+                    setCandidates(prev => prev.map(c => c.id === candidate.id ? { ...c, score: result.matchPercentage, analysis: result, status: 'scored' } : c));
+                } catch (e) { 
+                    console.error(e);
+                    alert("AI Error: Check your console or API Key."); 
+                } finally {
